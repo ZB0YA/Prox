@@ -30,7 +30,7 @@ prox() {
         host=${2:-localhost}
         cd "$DUMP_DIR" || return
         sleep 5
-        pm3 tcp:$host:5000
+        pm3 tcp:$host:5000 -i
 
     elif [ "$1" = "update" ]; then
         PM3_DIR="$HOME/proxmark3"
@@ -88,15 +88,15 @@ prox() {
 
         echo "[=] Using file: $full_path"
 
-        # --- STEP 3: extract UID (first 4 bytes) ---
+        # --- STEP 3: extract UID (robust 4-byte UID) ---
         uid=$(head -n1 "$full_path" | tr -d ' \n\r' | cut -c1-8 | tr '[:lower:]' '[:upper:]')
 
         echo "[+] Extracted UID: $uid"
         echo "[=] Starting emulation over TCP..."
 
-        # --- STEP 4: run emulation ---
-        pm3 tcp:$host:5000 -c "hf mf sim --1k -u $uid"
-        echo "[+] Emulation started"
+        # --- STEP 4: run emulation and stay interactive ---
+        pm3 tcp:$host:5000 -c "hf mf sim --1k -u $uid" -i
+        echo "[+] Emulation started (PM3 client is interactive now)"
 
     else
         echo "Usage:"
