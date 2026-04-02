@@ -62,13 +62,19 @@ prox() {
 
     elif [ "$1" = "eml" ]; then
         eml_file="$2"
+        host=${3:-localhost}
 
         if [ -z "$eml_file" ]; then
-            echo "[!] Usage: prox eml <file.eml>"
+            echo "[!] Usage: prox eml <file.eml> [host]"
             return
         fi
 
-        # If not absolute path, look in dump directory
+        # --- STEP 1: exactly like prox tcp ---
+        cd "$DUMP_DIR" || return
+        sleep 5
+        echo "[=] Connecting to PM3 via TCP: $host"
+
+        # --- STEP 2: locate the file ---
         if [ -f "$eml_file" ]; then
             full_path="$eml_file"
         elif [ -f "$DUMP_DIR/$eml_file" ]; then
@@ -82,18 +88,20 @@ prox() {
 
         echo "[=] Using file: $full_path"
 
-        # Extract UID (first 4 bytes of block 0)
-        uid=$(head -n1 "$full_path" | awk '{print $1 $2 $3 $4}' | tr '[:lower:]' '[:upper:]')
+        # --- STEP 3: extract UID (first 4 bytes) ---
+        uid=$(head -n1 "$full_path" | tr -d ' \n\r' | cut -c1-8 | tr '[:lower:]' '[:upper:]')
 
         echo "[+] Extracted UID: $uid"
-        echo "[=] Starting emulation..."
+        echo "[=] Starting emulation over TCP..."
 
-        pm3 hf mf sim --1k -u "$uid"
+        # --- STEP 4: run emulation ---
+        pm3 tcp:$host:5000 -c "hf mf sim --1k -u $uid"
+        echo "[+] Emulation started"
 
     else
         echo "Usage:"
         echo "  prox tcp [host]"
         echo "  prox update"
-        echo "  prox eml <file.eml>"
+        echo "  prox eml <file.eml> [host]"
     fi
 }
