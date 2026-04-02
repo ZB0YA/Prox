@@ -1,0 +1,156 @@
+# Prox Non-Commercial License (PNCL) v1.0
+#
+# Copyright (c) 2026 Yahya Meftahi (ZB0YA)
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to use,
+# copy, modify, and distribute the Software, subject to the following conditions:
+#
+# 1. Attribution
+#    You must give appropriate credit to the original author, Yahya Meftahi (ZB0YA),
+#    and include this license in any copies or substantial portions of the Software.
+#
+# 2. Non-Commercial Use Only
+#    The Software may NOT be used for commercial purposes. This includes, but is not
+#    limited to, selling the Software, including it in paid products, or using it in
+#    services that generate revenue.
+#
+# 3. No Warranty
+#    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#    SOFTWARE.
+prox() {
+    DUMP_DIR="/storage/emulated/0/NFC_RFID_dump"
+
+    if [ "$1" = "tcp" ]; then
+        host=${2:-localhost}
+        cd "$DUMP_DIR" || return
+        sleep 5
+        pm3 tcp:$host:5000 -i
+
+    elif [ "$1" = "update" ]; then
+        PM3_DIR="$HOME/proxmark3"
+
+        echo "[=] Updating Proxmark3..."
+
+        if [ ! -d "$PM3_DIR" ]; then
+            echo "[!] Repo not found, cloning..."
+            git clone https://github.com/RfidResearchGroup/proxmark3.git "$PM3_DIR"
+        fi
+
+        cd "$PM3_DIR" || return
+
+        echo "[=] Pulling latest changes..."
+        git pull || return
+
+        echo "[=] Building..."
+        make clean && make host || return
+
+        echo "[=] Installing..."
+
+        if [ -f "client/proxmark3" ]; then
+            ln -sf "$PM3_DIR/client/proxmark3" $PREFIX/bin/pm3
+            chmod +x $PREFIX/bin/pm3
+            echo "[+] Done! pm3 updated."
+        else
+            echo "[!] Build failed!"
+        fi
+
+    elif [ "$1" = "eml" ]; then
+        eml_file="$2"
+        host=${3:-localhost}
+
+        if [ -z "$eml_file" ]; then
+            echo "[!] Usage: prox eml <file.eml> [host]"
+            return
+        fi
+
+        cd "$DUMP_DIR" || return
+        sleep 5
+        echo "[=] Connecting to PM3 via TCP: $host"
+
+        # --- Locate file ---
+        if [ -f "$eml_file" ]; then
+            full_path="$eml_file"
+        elif [ -f "$DUMP_DIR/$eml_file" ]; then
+            full_path="$DUMP_DIR/$eml_file"
+        else
+            echo "[!] File not found:"
+            echo "    $eml_file"
+            echo "    $DUMP_DIR/$eml_file"
+            return
+        fi
+
+        echo "[=] Using file: $full_path"
+
+        # --- Extract UID ---
+        raw_uid=$(head -n1 "$full_path" | tr -d ' \n\r' | tr '[:lower:]' '[:upper:]')
+        uid_len=${#raw_uid}
+
+        if [ "$uid_len" -ge 20 ]; then
+            uid=$(echo "$raw_uid" | cut -c1-20)
+        elif [ "$uid_len" -ge 14 ]; then
+            uid=$(echo "$raw_uid" | cut -c1-14)
+        else
+            uid=$(echo "$raw_uid" | cut -c1-8)
+        fi
+
+        echo "[+] Extracted UID: $uid"
+
+        # --- Detect tag family ---
+        file_size=$(wc -c < "$full_path")
+        line_count=$(wc -l < "$full_path")
+
+        echo "[=] File size: $file_size bytes | Lines: $line_count"
+
+        if [ "$file_size" -lt 600 ] && [ "$line_count" -lt 200 ]; then
+            tag_family="ultralight"
+        else
+            tag_family="classic"
+        fi
+
+        echo "[+] Detected tag family: $tag_family"
+
+        # --- Handle Classic ---
+        if [ "$tag_family" = "classic" ]; then
+
+            if [ "$file_size" -le 400 ]; then
+                tag="--mini"
+                tag_name="MIFARE Mini"
+            elif [ "$file_size" -le 1200 ]; then
+                tag="--1k"
+                tag_name="MIFARE 1K"
+            elif [ "$file_size" -le 2500 ]; then
+                tag="--2k"
+                tag_name="MIFARE 2K"
+            else
+                tag="--4k"
+                tag_name="MIFARE 4K"
+            fi
+
+            echo "[+] Detected tag type: $tag_name"
+            echo "[=] Starting Classic emulation..."
+
+            pm3 tcp:$host:5000 -c "hf mf sim $tag -u $uid" -i
+
+        # --- Handle Ultralight / NTAG ---
+        else
+            echo "[+] Detected tag type: Ultralight / NTAG"
+            echo "[=] Starting 14a emulation..."
+
+            pm3 tcp:$host:5000 -c "hf 14a sim -u $uid" -i
+        fi
+
+        echo "[+] Emulation started (PM3 client is interactive now)"
+
+    else
+        echo "Usage:"
+        echo "  prox tcp [host]"
+        echo "  prox update"
+        echo "  prox eml <file.eml> [host]"
+    fi
+}
