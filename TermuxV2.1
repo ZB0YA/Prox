@@ -87,21 +87,38 @@ prox() {
 
         echo "[=] Using file: $full_path"
 
-        # --- Extract UID ---
-        raw_uid=$(head -n1 "$full_path" | tr -d ' \n\r' | tr '[:lower:]' '[:upper:]')
-        uid_len=${#raw_uid}
+        # =========================================================
+        # --- STEP 1: Extract UID (ISO14443A cascade-aware) ---
+        # =========================================================
+        hex=$(head -n1 "$full_path" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
 
-        if [ "$uid_len" -ge 20 ]; then
-            uid=$(echo "$raw_uid" | cut -c1-20)
-        elif [ "$uid_len" -ge 14 ]; then
-            uid=$(echo "$raw_uid" | cut -c1-14)
+        uid=""
+        uid_len="unknown"
+
+        if [[ "$hex" == 88* ]]; then
+            # Remove first cascade tag
+            hex_no_ct=${hex:2}
+
+            if [[ "$hex_no_ct" == 88* ]]; then
+                # 10-byte UID
+                uid=$(echo "$hex_no_ct" | cut -c3-22)
+                uid_len="10-byte"
+            else
+                # 7-byte UID
+                uid=$(echo "$hex_no_ct" | cut -c1-14)
+                uid_len="7-byte"
+            fi
         else
-            uid=$(echo "$raw_uid" | cut -c1-8)
+            # 4-byte UID
+            uid=$(echo "$hex" | cut -c1-8)
+            uid_len="4-byte"
         fi
 
-        echo "[+] Extracted UID: $uid"
+        echo "[+] Extracted UID: $uid ($uid_len)"
 
-        # --- Detect tag family ---
+        # =========================================================
+        # --- STEP 2: Detect tag family ---
+        # =========================================================
         file_size=$(wc -c < "$full_path")
         line_count=$(wc -l < "$full_path")
 
@@ -115,8 +132,15 @@ prox() {
 
         echo "[+] Detected tag family: $tag_family"
 
-        # --- Handle Classic ---
+        # =========================================================
+        # --- STEP 3: Emulation logic ---
+        # =========================================================
+
         if [ "$tag_family" = "classic" ]; then
+
+            # Classic MUST use 4-byte UID
+            uid=$(echo "$uid" | cut -c1-8)
+            echo "[=] Forcing 4-byte UID for MIFARE Classic"
 
             if [ "$file_size" -le 400 ]; then
                 tag="--mini"
@@ -137,9 +161,9 @@ prox() {
 
             pm3 tcp:$host:5000 -c "hf mf sim $tag -u $uid" -i
 
-        # --- Handle Ultralight / NTAG ---
         else
             echo "[+] Detected tag type: Ultralight / NTAG"
+            echo "[=] Using UID length: $uid_len"
             echo "[=] Starting 14a emulation..."
 
             pm3 tcp:$host:5000 -c "hf 14a sim -u $uid" -i
