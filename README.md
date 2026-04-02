@@ -13,6 +13,6 @@ only works if only USB serial device
 prox flash updates firmware 
 only works on proxmark3 easy and other generic pm3
 note /storage/emulated/0/NFC_RFID_dump has to exist for termux version to work 
-prox eml <File name.eml>
+prox eml File name.eml
 emulates a MF classic tag
 from tag dump no need for manually inputing UID
